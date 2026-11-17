@@ -1,14 +1,18 @@
-// Enemies and the wave director for LUMEN DRIFT.
-// Five kinds, each with its own movement, look and threat: the drifting
-// Mote, the sine-weaving Weaver, the ranged Spitter, the splitting Brute,
-// and the Void Warden, the wave-10 boss with phases and radial bursts.
-import { ARENA, ENEMIES, PALETTE, VIEW, BOSS_WAVE, wavePlan } from './config.js';
+// Enemies and the night director for LUMEN DRIFT.
+// Eight kinds, each with its own movement, look and threat: the drifting
+// Mote, the sine-weaving Weaver, the ranged Spitter, the telegraphing
+// Charger that rushes in a straight line, the splitting Brute, the
+// Splitter that bursts into motes, the long-range Sniper, and the Void
+// Warden, the night-7 boss with three phases. Some kinds hunt the ship;
+// some hunt the Beacon — and the swarm's mix is what the player reads.
+import { ARENA, BEACON, ENEMIES, PALETTE, VIEW, BOSS_NIGHT } from './config.js';
+import { nightPlan } from './nights.js';
 import { angleTo, clamp, distance, pick, range } from './random.js';
 
 let nextId = 1;
 
 export class Enemy {
-  constructor(kind, x, y, wave, rng) {
+  constructor(kind, x, y, night, rng) {
     const def = ENEMIES[kind];
     this.id = nextId;
     nextId += 1;
@@ -18,37 +22,60 @@ export class Enemy {
     this.vx = 0;
     this.vy = 0;
     this.radius = def.radius;
-    this.hp = def.hp + Math.floor(wave / 4) * (kind === 'brute' ? 2 : 1);
+    this.hp = def.hp + Math.floor(night / 3) * (kind === 'brute' ? 2 : 1);
     this.maxHp = this.hp;
-    this.speed = def.speed * (1 + wave * 0.02);
+    this.speed = def.speed * (1 + night * 0.02);
     this.score = def.score;
     this.damage = def.damage;
     this.color = def.color;
     this.shard = def.shard;
+    // Kinds that hunt "both" roll their prey per enemy: some chase the
+    // ship, some drift for the Beacon's light.
+    this.target = def.target === 'both' ? (rng() < 0.4 ? 'beacon' : 'ship') : def.target;
     this.phase = rng() * Math.PI * 2;
     this.fireTimer = range(rng, 1, 2.5);
     this.flash = 0;
     this.spawnT = 0;
+    this.burnAcc = 0;
+    this.trappedBy = false;
     this.burstTimer = 3;
     this.summonTimer = 5;
+    this.spiralTimer = 1;
     this.enraged = false;
+    this.chargeState = 'roam';
+    this.chargeTimer = 0;
+    this.chargeAngle = 0;
   }
 
   update(dt, world) {
     const player = world.player;
-    const d = distance(this.x, this.y, player.x, player.y);
-    const a = angleTo(this.x, this.y, player.x, player.y);
+    // A trapped foe is held by the loop: it does not move or shoot.
+    if (this.trappedBy) {
+      this.flash = Math.max(0, this.flash - dt);
+      this.spawnT += dt;
+      return;
+    }
+    const tx = this.target === 'beacon' ? BEACON.x : player.x;
+    const ty = this.target === 'beacon' ? BEACON.y : player.y;
+    const d = distance(this.x, this.y, tx, ty);
+    const a = angleTo(this.x, this.y, tx, ty);
     this.flash = Math.max(0, this.flash - dt);
     this.spawnT += dt;
-    if (this.kind === 'mote') {
-      this.vx += Math.cos(a) * 260 * dt;
-      this.vy += Math.sin(a) * 260 * dt;
-    } else if (this.kind === 'weaver') {
-      const wobble = Math.sin(world.time * 3 + this.phase) * 140;
-      const px = Math.cos(a);
-      const py = Math.sin(a);
-      this.vx += (px * this.speed + -py * wobble * 0.4) * dt * 3;
-      this.vy += (py * this.speed + px * wobble * 0.4) * dt * 3;
+    if (this.kind === 'mote' || this.kind === 'weaver') {
+      if (this.kind === 'mote') {
+        this.vx += Math.cos(a) * 260 * dt;
+        this.vy += Math.sin(a) * 260 * dt;
+      } else {
+        const wobble = Math.sin(world.time * 3 + this.phase) * 140;
+        const px = Math.cos(a);
+        const py = Math.sin(a);
+        this.vx += (px * this.speed + -py * wobble * 0.4) * dt * 3;
+        this.vy += (py * this.speed + px * wobble * 0.4) * dt * 3;
+      }
+      // A foe that reaches the Beacon drinks its light and burns out.
+      if (this.target === 'beacon' && d < BEACON.radius + this.radius) {
+        world.drainBeacon(this);
+      }
     } else if (this.kind === 'spitter') {
       const want = 260;
       const dir = d > want + 30 ? 1 : d < want - 30 ? -1 : 0;
@@ -62,9 +89,28 @@ export class Enemy {
         world.bullets.fireEnemy(this.x, this.y, a, 240, 1, 6);
         world.audio.hit();
       }
+    } else if (this.kind === 'charger') {
+      this.updateCharger(dt, world, d, a);
     } else if (this.kind === 'brute') {
       this.vx += Math.cos(a) * 160 * dt;
       this.vy += Math.sin(a) * 160 * dt;
+    } else if (this.kind === 'splitter') {
+      const wobble = Math.sin(world.time * 4 + this.phase) * 90;
+      const px = Math.cos(a);
+      const py = Math.sin(a);
+      this.vx += (px * this.speed + -py * wobble * 0.3) * dt * 3;
+      this.vy += (py * this.speed + px * wobble * 0.3) * dt * 3;
+    } else if (this.kind === 'sniper') {
+      const want = 430;
+      const dir = d > want + 40 ? 1 : d < want - 40 ? -1 : 0;
+      this.vx += Math.cos(a) * 140 * dir * dt;
+      this.vy += Math.sin(a) * 140 * dir * dt;
+      this.fireTimer -= dt;
+      if (this.fireTimer <= 0 && d < 640) {
+        this.fireTimer = range(world.rng, 2.4, 3.2);
+        world.bullets.fireEnemy(this.x, this.y, a, 420, 1, 5);
+        world.audio.snipe();
+      }
     } else if (this.kind === 'warden') {
       this.updateWarden(dt, world, d, a);
     }
@@ -81,32 +127,87 @@ export class Enemy {
     this.y = clamp(this.y + this.vy * dt, ARENA.y + this.radius, ARENA.y + ARENA.height - this.radius);
   }
 
+  // The Charger telegraphs, then rushes in one straight line: dodge it,
+  // or better, dash across its path and let it run into your driftline.
+  updateCharger(dt, world, d, a) {
+    if (this.chargeState === 'roam') {
+      this.vx += Math.cos(a) * 200 * dt;
+      this.vy += Math.sin(a) * 200 * dt;
+      this.chargeTimer -= dt;
+      if (this.chargeTimer <= 0 && d < 380) {
+        this.chargeState = 'aim';
+        this.chargeTimer = 0.7;
+        this.chargeAngle = a;
+        world.audio.chargeAim();
+      }
+    } else if (this.chargeState === 'aim') {
+      this.vx *= 0.9;
+      this.vy *= 0.9;
+      this.chargeAngle = a;
+      this.chargeTimer -= dt;
+      if (this.chargeTimer <= 0) {
+        this.chargeState = 'rush';
+        this.chargeTimer = 0.5;
+        this.vx = Math.cos(this.chargeAngle) * 540;
+        this.vy = Math.sin(this.chargeAngle) * 540;
+        world.audio.chargeRush();
+      }
+    } else {
+      this.chargeTimer -= dt;
+      if (this.chargeTimer <= 0) {
+        this.chargeState = 'roam';
+        this.chargeTimer = range(world.rng, 1.2, 2.2);
+      }
+    }
+  }
+
   updateWarden(dt, world, d, a) {
-    // Phase 2 below half health: faster, denser bursts.
-    if (!this.enraged && this.hp < this.maxHp / 2) {
+    // Three phases: bursts, then spirals and summons, then an enraged
+    // charge. Each phase change is announced with a ring and an alarm.
+    const frac = this.hp / this.maxHp;
+    if (!this.enraged && frac < 0.66) {
       this.enraged = true;
       world.particles.ring(this.x, this.y, PALETTE.warden, 260);
       world.audio.bossAlarm();
+      world.banner = 'THE WARDEN UNRAVELS — SPIRALS';
+      world.bannerTimer = 2.0;
     }
-    const speedMul = this.enraged ? 1.5 : 1;
+    if (frac < 0.33 && this.chargeState !== 'enraged') {
+      this.chargeState = 'enraged';
+      world.particles.ring(this.x, this.y, PALETTE.warden, 320);
+      world.audio.bossAlarm();
+      world.banner = 'THE WARDEN RAGES';
+      world.bannerTimer = 2.0;
+    }
+    const phase = frac < 0.33 ? 3 : frac < 0.66 ? 2 : 1;
+    const speedMul = phase === 3 ? 1.6 : phase === 2 ? 1.2 : 1;
     this.vx += Math.cos(a) * 120 * speedMul * dt;
     this.vy += Math.sin(a) * 120 * speedMul * dt;
     this.burstTimer -= dt;
     if (this.burstTimer <= 0) {
-      this.burstTimer = this.enraged ? 2.2 : 3.2;
-      const count = this.enraged ? 14 : 10;
+      this.burstTimer = phase === 3 ? 2.0 : phase === 2 ? 2.6 : 3.2;
+      const count = phase === 3 ? 16 : phase === 2 ? 12 : 10;
       for (let i = 0; i < count; i += 1) {
         const ang = (i / count) * Math.PI * 2 + this.phase;
         world.bullets.fireEnemy(this.x, this.y, ang, 190, 1, 7);
       }
       world.audio.bossAlarm();
     }
+    if (phase >= 2) {
+      this.spiralTimer -= dt;
+      if (this.spiralTimer <= 0) {
+        this.spiralTimer = 0.35;
+        this.phase += 0.55;
+        world.bullets.fireEnemy(this.x, this.y, this.phase, 230, 1, 6);
+        world.bullets.fireEnemy(this.x, this.y, this.phase + Math.PI, 230, 1, 6);
+      }
+    }
     this.summonTimer -= dt;
     if (this.summonTimer <= 0) {
-      this.summonTimer = 6;
-      for (let i = 0; i < 3; i += 1) {
+      this.summonTimer = phase === 3 ? 4 : 6;
+      for (let i = 0; i < (phase === 3 ? 4 : 3); i += 1) {
         const ang = world.rng() * Math.PI * 2;
-        world.spawnEnemy('mote', this.x + Math.cos(ang) * 90, this.y + Math.sin(ang) * 90);
+        world.spawnEnemy(phase >= 2 ? 'weaver' : 'mote', this.x + Math.cos(ang) * 90, this.y + Math.sin(ang) * 90);
       }
     }
   }
@@ -148,12 +249,65 @@ export class Enemy {
       ctx.beginPath();
       ctx.arc(0, 0, this.radius * 0.45, 0, Math.PI * 2);
       ctx.fill();
+    } else if (this.kind === 'charger') {
+      // A diamond that flashes white while it aims its rush.
+      if (this.chargeState === 'aim') {
+        ctx.fillStyle = Math.floor(time * 12) % 2 === 0 ? '#ffffff' : this.color;
+        ctx.rotate(this.chargeAngle);
+      }
+      ctx.beginPath();
+      ctx.moveTo(this.radius, 0);
+      ctx.lineTo(0, this.radius * 0.7);
+      ctx.lineTo(-this.radius, 0);
+      ctx.lineTo(0, -this.radius * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      if (this.chargeState === 'aim') {
+        ctx.rotate(-this.chargeAngle);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,84,112,0.8)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(this.chargeAngle) * (this.radius + 6), Math.sin(this.chargeAngle) * (this.radius + 6));
+        ctx.lineTo(Math.cos(this.chargeAngle) * (this.radius + 70), Math.sin(this.chargeAngle) * (this.radius + 70));
+        ctx.stroke();
+      }
     } else if (this.kind === 'brute') {
       ctx.rotate(time * 0.6);
       ctx.fillRect(-this.radius * 0.8, -this.radius * 0.8, this.radius * 1.6, this.radius * 1.6);
       ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.fillRect(-this.radius * 0.4, -this.radius * 0.4, this.radius * 0.8, this.radius * 0.8);
+    } else if (this.kind === 'splitter') {
+      ctx.rotate(time * 1.2 + this.phase);
+      ctx.beginPath();
+      for (let i = 0; i < 6; i += 1) {
+        const ang = (i / 6) * Math.PI * 2;
+        const px = Math.cos(ang) * this.radius;
+        const py = Math.sin(ang) * this.radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(4,6,15,0.6)';
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.kind === 'sniper') {
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#0a2010';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-this.radius, 0);
+      ctx.lineTo(this.radius, 0);
+      ctx.moveTo(0, -this.radius);
+      ctx.lineTo(0, this.radius);
+      ctx.stroke();
     } else {
       // The Void Warden: a huge rotating hex with a pulsing core.
       ctx.rotate(time * 0.4);
@@ -183,10 +337,19 @@ export class Enemy {
       ctx.fillStyle = this.color;
       ctx.fillRect(this.x - w / 2, this.y - this.radius - 12, w * (this.hp / this.maxHp), 5);
     }
+    // A small beacon marker over foes hunting the Beacon's light.
+    if (this.target === 'beacon' && this.kind !== 'warden') {
+      ctx.save();
+      ctx.font = 'bold 11px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,215,106,0.9)';
+      ctx.fillText('◆', this.x, this.y - this.radius - 16);
+      ctx.restore();
+    }
   }
 }
 
-// Picks where a wave's enemies enter: just outside the arena edge.
+// Picks where a night's enemies enter: just outside the arena edge.
 export function spawnPoint(rng) {
   const side = Math.floor(rng() * 4);
   if (side === 0) return { x: range(rng, ARENA.x, ARENA.x + ARENA.width), y: ARENA.y + 10 };
@@ -195,7 +358,7 @@ export function spawnPoint(rng) {
   return { x: ARENA.x + ARENA.width - 10, y: range(rng, ARENA.y, ARENA.y + ARENA.height) };
 }
 
-export class WaveDirector {
+export class NightDirector {
   constructor(rng) {
     this.rng = rng;
     this.reset();
@@ -204,19 +367,18 @@ export class WaveDirector {
   reset() {
     this.queue = [];
     this.spawnTimer = 0;
-    this.betweenTimer = 0;
     this.active = false;
   }
 
-  startWave(wave) {
+  startNight(night) {
     this.queue = [];
-    if (wave === BOSS_WAVE) {
+    if (night === BOSS_NIGHT) {
       this.queue.push('warden');
       this.active = true;
       this.spawnTimer = 0.5;
       return;
     }
-    const plan = wavePlan(wave);
+    const plan = nightPlan(night);
     let budget = plan.budget;
     while (budget > 0) {
       const kind = pick(this.rng, plan.kinds);
@@ -234,7 +396,7 @@ export class WaveDirector {
     if (this.queue.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        // Spawn in small groups so waves arrive as squads, not a trickle.
+        // Spawn in small groups so nights arrive as squads, not a trickle.
         const group = Math.min(this.queue.length, 1 + Math.floor(world.wave / 3));
         for (let i = 0; i < group; i += 1) {
           const kind = this.queue.shift();
@@ -245,7 +407,7 @@ export class WaveDirector {
       }
     } else if (world.enemies.length === 0) {
       this.active = false;
-      world.onWaveCleared();
+      world.onNightCleared();
     }
   }
 }

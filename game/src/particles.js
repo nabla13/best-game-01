@@ -2,7 +2,7 @@
 // animated starfield for LUMEN DRIFT. Everything here is cosmetic: it never
 // changes the rules, only how they feel. The nebula background is painted
 // once onto an offscreen canvas and reused every frame.
-import { VIEW, PALETTE } from './config.js';
+import { VIEW, PALETTE, BEACON } from './config.js';
 import { range } from './random.js';
 
 export class Particles {
@@ -144,13 +144,13 @@ export class Particles {
       ctx.fillRect(s.x, s.y, s.size, s.size);
     }
     ctx.globalAlpha = 1;
-    // A slow drifting glow around the Beacon, top centre of the arena.
+    // A slow drifting glow around the Beacon, at the arena's heart.
     const pulse = 0.5 + 0.5 * Math.sin(time * 0.8);
-    const g = ctx.createRadialGradient(640, 60, 0, 640, 60, 150 + pulse * 40);
-    g.addColorStop(0, 'rgba(94,242,255,0.10)');
-    g.addColorStop(1, 'rgba(94,242,255,0)');
+    const g = ctx.createRadialGradient(BEACON.x, BEACON.y, 0, BEACON.x, BEACON.y, 150 + pulse * 40);
+    g.addColorStop(0, 'rgba(255,215,106,0.07)');
+    g.addColorStop(1, 'rgba(255,215,106,0)');
     ctx.fillStyle = g;
-    ctx.fillRect(490, -90, 300, 300);
+    ctx.fillRect(BEACON.x - 190, BEACON.y - 190, 380, 380);
   }
 
   draw(ctx) {

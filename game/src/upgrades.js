@@ -1,7 +1,8 @@
-// Between-wave upgrade cards for LUMEN DRIFT.
-// Each wave cleared, the player picks one of three cards. A card's effect
-// applies at once and stacks up to its max; the choice screen is the game's
-// main strategic decision.
+// Between-night relics for LUMEN DRIFT.
+// Each night cleared, the player picks one of three relics. A relic's
+// effect applies at once and stacks up to its max; the choice between
+// nights is the game's main strategic decision — gun relics, hull relics
+// and weave relics that make the driftlines and loops hit harder.
 import { UPGRADE_POOL, PLAYER } from './config.js';
 import { shuffle } from './random.js';
 
@@ -25,6 +26,10 @@ export function applyUpgrade(player, upgrade) {
   if (upgrade.id === 'magnet') player.magnet *= 1.6;
   if (upgrade.id === 'pierce') player.pierce += 1;
   if (upgrade.id === 'aegis') player.shield = true;
+  if (upgrade.id === 'trailburn') player.burnMul *= 1.5;
+  if (upgrade.id === 'loopmaster') player.loopMul *= 2;
+  if (upgrade.id === 'longline') player.lineLifeMul *= 1.4;
+  if (upgrade.id === 'wideweave') player.lineWidthMul *= 2;
 }
 
 // Card layout for the choice screen, shared by world and render.

@@ -1,8 +1,9 @@
-// All canvas drawing for LUMEN DRIFT: the arena, the HUD and every screen.
+// All canvas drawing for LUMEN DRIFT: the arena, the Beacon, the
+// driftlines and loops, the HUD and every screen.
 // The judge sees the game through its screenshots, so each screen is drawn
-// to read at a glance: a big title, a HUD with score, wave, hull and Nova,
-// upgrade cards, and end screens with stats and a restart.
-import { ARENA, PALETTE, PLAYER, VIEW } from './config.js';
+// to read at a glance: a big title, a HUD with score, night, hull, Beacon
+// light and Nova, relic cards, and end screens with stats and a restart.
+import { ARENA, BEACON, BOSS_NIGHT, PALETTE, PLAYER, VIEW } from './config.js';
 import { SCREEN_OVER, SCREEN_PAUSE, SCREEN_PLAY, SCREEN_TITLE, SCREEN_UPGRADE, SCREEN_VICTORY, overButtons, victoryButtons } from './world.js';
 import { cardRects } from './upgrades.js';
 
@@ -78,6 +79,69 @@ function drawNovaMeter(ctx, x, y, w, frac, ready) {
   ctx.restore();
 }
 
+function drawBeaconPips(ctx, x, y, light, maxLight) {
+  ctx.save();
+  const pipW = 20;
+  const total = maxLight * pipW;
+  ctx.font = `700 15px ${FONT}`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = PALETTE.dim;
+  ctx.fillText('BEACON', x - total - 8, y);
+  ctx.font = '18px ' + FONT;
+  ctx.textAlign = 'left';
+  for (let i = 0; i < maxLight; i += 1) {
+    ctx.fillStyle = i < light ? PALETTE.gold : 'rgba(255,215,106,0.22)';
+    ctx.fillText('◆', x - total + i * pipW, y);
+  }
+  ctx.restore();
+}
+
+function drawBeacon(ctx, world, time) {
+  const light = world.beaconLight;
+  const frac = Math.max(0, light / BEACON.maxLight);
+  const pulse = 0.5 + 0.5 * Math.sin(time * 1.6);
+  ctx.save();
+  ctx.translate(BEACON.x, BEACON.y);
+  // Halo: wide when the Beacon burns bright, thin and red when it dims.
+  const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 120 + pulse * 30);
+  halo.addColorStop(0, frac > 0.4 ? `rgba(255,215,106,${0.22 + 0.1 * pulse})` : `rgba(255,84,112,${0.18 + 0.1 * pulse})`);
+  halo.addColorStop(1, 'rgba(255,215,106,0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(-150, -150, 300, 300);
+  // Light ring: one arc per remaining light.
+  for (let i = 0; i < BEACON.maxLight; i += 1) {
+    const a0 = (i / BEACON.maxLight) * Math.PI * 2 - Math.PI / 2;
+    ctx.strokeStyle = i < light ? PALETTE.gold : 'rgba(255,215,106,0.18)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(0, 0, BEACON.radius + 12, a0 + 0.12, a0 + (Math.PI * 2) / BEACON.maxLight - 0.12);
+    ctx.stroke();
+  }
+  // The Beacon itself: a four-point star that breathes with its light.
+  const r = BEACON.radius * (0.55 + 0.25 * frac + 0.08 * pulse);
+  ctx.shadowBlur = 26;
+  ctx.shadowColor = PALETTE.gold;
+  ctx.fillStyle = '#ffe9a8';
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.lineTo(r * 0.32, -r * 0.32);
+  ctx.lineTo(r, 0);
+  ctx.lineTo(r * 0.32, r * 0.32);
+  ctx.lineTo(0, r);
+  ctx.lineTo(-r * 0.32, r * 0.32);
+  ctx.lineTo(-r, 0);
+  ctx.lineTo(-r * 0.32, -r * 0.32);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fffbe8';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawHud(ctx, world) {
   const p = world.player;
   ctx.save();
@@ -92,11 +156,11 @@ function drawHud(ctx, world) {
   drawHullHearts(ctx, 24, 50, p.hull, p.maxHull);
   ctx.textAlign = 'center';
   ctx.font = `800 24px ${FONT}`;
-  ctx.fillStyle = world.wave === 10 ? PALETTE.warden : PALETTE.text;
-  ctx.fillText(world.wave === 10 ? 'WAVE 10 — VOID WARDEN' : `WAVE ${world.wave}`, VIEW.width / 2, 24);
+  ctx.fillStyle = world.wave === BOSS_NIGHT ? PALETTE.warden : PALETTE.text;
+  ctx.fillText(world.wave === BOSS_NIGHT ? 'NIGHT 7 — VOID WARDEN' : `NIGHT ${world.wave} — ${world.nightName(world.wave)}`, VIEW.width / 2, 24);
   ctx.font = `600 14px ${FONT}`;
   ctx.fillStyle = PALETTE.dim;
-  ctx.fillText(world.endless ? 'ENDLESS MODE' : 'DEFEAT THE WARDEN ON WAVE 10', VIEW.width / 2, 48);
+  ctx.fillText(world.endless ? 'ENDLESS MODE' : 'HOLD THE BEACON FOR 7 NIGHTS', VIEW.width / 2, 48);
   ctx.textAlign = 'right';
   ctx.font = `700 18px ${FONT}`;
   ctx.fillStyle = PALETTE.gold;
@@ -104,15 +168,22 @@ function drawHud(ctx, world) {
   ctx.fillStyle = PALETTE.dim;
   ctx.font = `600 14px ${FONT}`;
   ctx.fillText(`BEST ${Math.max(world.best.score, world.score).toLocaleString('en-US')}`, VIEW.width - 24, 48);
-  // Combo badge.
+  drawBeaconPips(ctx, VIEW.width - 24, 72, world.beaconLight, BEACON.maxLight);
+  // Combo badge and loops sealed.
   if (world.combo > 1) {
     ctx.textAlign = 'right';
     ctx.font = `800 22px ${FONT}`;
     ctx.fillStyle = PALETTE.shard;
     ctx.shadowBlur = 12;
     ctx.shadowColor = PALETTE.shard;
-    ctx.fillText(`COMBO ×${world.combo}`, VIEW.width - 24, 92);
+    ctx.fillText(`COMBO ×${world.combo}`, VIEW.width - 24, 100);
     ctx.shadowBlur = 0;
+  }
+  if (world.stats.loopsSealed > 0) {
+    ctx.textAlign = 'right';
+    ctx.font = `800 18px ${FONT}`;
+    ctx.fillStyle = PALETTE.loop;
+    ctx.fillText(`◍ LOOPS SEALED ${world.stats.loopsSealed}`, VIEW.width - 24, world.combo > 1 ? 126 : 100);
   }
   // Nova meter, bottom left; dash, bottom right.
   drawNovaMeter(ctx, 24, VIEW.height - 40, 220, p.nova / PLAYER.novaMax, p.novaReady);
@@ -120,7 +191,17 @@ function drawHud(ctx, world) {
   ctx.font = `700 14px ${FONT}`;
   ctx.fillStyle = p.dashReady ? PALETTE.player : PALETTE.dim;
   ctx.fillText(p.dashReady ? 'DASH READY — Space' : 'DASH …', VIEW.width - 24, VIEW.height - 22);
-  // Wave banner.
+  // Hint toast, bottom centre.
+  if (world.hint) {
+    ctx.textAlign = 'center';
+    ctx.font = `700 16px ${FONT}`;
+    ctx.fillStyle = PALETTE.gold;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = PALETTE.gold;
+    ctx.fillText(world.hint, VIEW.width / 2, VIEW.height - 22);
+    ctx.shadowBlur = 0;
+  }
+  // Night banner.
   if (world.bannerTimer > 0) {
     const a = Math.min(1, world.bannerTimer);
     ctx.globalAlpha = a;
@@ -142,13 +223,14 @@ function drawTitle(ctx, world) {
   ctx.save();
   ctx.fillStyle = 'rgba(4,6,15,0.45)';
   ctx.fillRect(0, 0, VIEW.width, VIEW.height);
-  titleText(ctx, 'LUMEN DRIFT', VIEW.width / 2, 190, 84, PALETTE.text, PALETTE.player);
-  titleText(ctx, 'DEFEND THE BEACON  •  LIGHT THE LAST STAR', VIEW.width / 2, 252, 20, PALETTE.player);
+  titleText(ctx, 'LUMEN DRIFT', VIEW.width / 2, 170, 84, PALETTE.text, PALETTE.player);
+  titleText(ctx, 'WEAVE LIGHT INTO LOOPS  •  HOLD THE BEACON FOR 7 NIGHTS', VIEW.width / 2, 232, 20, PALETTE.loop);
   ctx.font = `600 18px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.fillStyle = PALETTE.text;
-  ctx.fillText('Void shards swarm the Shattered Ring. Blast them, gather starshards,', VIEW.width / 2, 330);
-  ctx.fillText('choose your upgrades — and bring down the Void Warden on wave 10.', VIEW.width / 2, 358);
+  ctx.fillText('Void shards swarm the Shattered Ring to drink the Beacon\'s light.', VIEW.width / 2, 306);
+  ctx.fillText('Dash to paint a driftline — cross your own line to SEAL a loop,', VIEW.width / 2, 334);
+  ctx.fillText('trap the swarm inside, and watch it burst. Guard the Beacon. Down the Warden.', VIEW.width / 2, 362);
   const blink = 0.6 + 0.4 * Math.sin(world.time * 3);
   ctx.globalAlpha = blink;
   titleText(ctx, 'CLICK OR PRESS ENTER TO FLY', VIEW.width / 2, 440, 26, PALETTE.gold);
@@ -156,10 +238,10 @@ function drawTitle(ctx, world) {
   ctx.font = `600 16px ${FONT}`;
   ctx.fillStyle = PALETTE.dim;
   ctx.fillText('WASD / arrows — fly      Mouse — aim      Hold click — fire', VIEW.width / 2, 500);
-  ctx.fillText('Space — dash      E / right click — Nova blast      P — pause      M — mute', VIEW.width / 2, 526);
+  ctx.fillText('Space — dash & weave      E / right click — Nova blast      P — pause      M — mute', VIEW.width / 2, 526);
   if (world.best.score > 0) {
     ctx.fillStyle = PALETTE.gold;
-    ctx.fillText(`BEST  ${world.best.score.toLocaleString('en-US')}  •  WAVE ${world.best.wave}`, VIEW.width / 2, 580);
+    ctx.fillText(`BEST  ${world.best.score.toLocaleString('en-US')}  •  NIGHT ${world.best.wave}`, VIEW.width / 2, 580);
   }
   ctx.restore();
 }
@@ -168,11 +250,11 @@ function drawUpgrade(ctx, world) {
   ctx.save();
   ctx.fillStyle = 'rgba(4,6,15,0.72)';
   ctx.fillRect(0, 0, VIEW.width, VIEW.height);
-  titleText(ctx, `WAVE ${world.wave} CLEARED`, VIEW.width / 2, 130, 44, PALETTE.text, PALETTE.player);
+  titleText(ctx, `NIGHT ${world.wave} HELD — DAWN BREAKS`, VIEW.width / 2, 120, 40, PALETTE.text, PALETTE.player);
   ctx.font = `600 20px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.fillStyle = PALETTE.dim;
-  ctx.fillText('Choose one upgrade — click a card or press 1, 2 or 3', VIEW.width / 2, 180);
+  ctx.fillText('The Beacon drinks one light back. Choose a relic — click a card or press 1, 2 or 3', VIEW.width / 2, 168);
   const rects = cardRects();
   world.offered.forEach((u, i) => {
     const r = rects[i];
@@ -243,16 +325,25 @@ function drawOver(ctx, world) {
   ctx.save();
   ctx.fillStyle = 'rgba(10,4,10,0.6)';
   ctx.fillRect(0, 0, VIEW.width, VIEW.height);
-  titleText(ctx, 'THE LIGHT FADES', VIEW.width / 2, 150, 52, PALETTE.danger, PALETTE.danger);
-  ctx.font = `600 20px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.fillStyle = PALETTE.dim;
-  ctx.fillText(`The Warden's swarm overtook the Lumen on wave ${world.wave}.`, VIEW.width / 2, 205);
+  if (world.endReason === 'beacon') {
+    titleText(ctx, 'THE BEACON WENT DARK', VIEW.width / 2, 150, 52, PALETTE.danger, PALETTE.danger);
+    ctx.font = `600 20px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = PALETTE.dim;
+    ctx.fillText(`Its last light was drunk by the swarm on night ${world.wave}.`, VIEW.width / 2, 205);
+  } else {
+    titleText(ctx, 'THE LIGHT FADES', VIEW.width / 2, 150, 52, PALETTE.danger, PALETTE.danger);
+    ctx.font = `600 20px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = PALETTE.dim;
+    ctx.fillText(`The swarm overtook the Lumen on night ${world.wave}.`, VIEW.width / 2, 205);
+  }
   statRows(ctx, world, [
     ['Final score', world.score.toLocaleString('en-US')],
     ['Best score', Math.max(world.best.score, world.score).toLocaleString('en-US')],
-    ['Wave reached', String(world.wave)],
+    ['Night reached', String(world.wave)],
     ['Void shards destroyed', String(world.kills)],
+    ['Loops sealed', String(world.stats.loopsSealed)],
     ['Starshards gathered', String(world.shards)],
     ['Best combo', `×${world.bestCombo}`],
   ], 260);
@@ -267,24 +358,25 @@ function drawVictory(ctx, world) {
   ctx.save();
   ctx.fillStyle = 'rgba(4,10,6,0.6)';
   ctx.fillRect(0, 0, VIEW.width, VIEW.height);
-  titleText(ctx, '★  BEACON LIT  ★', VIEW.width / 2, 130, 52, PALETTE.gold, PALETTE.gold);
-  titleText(ctx, 'THE VOID WARDEN IS DOWN — VICTORY', VIEW.width / 2, 185, 24, PALETTE.text);
+  titleText(ctx, '★  THE BEACON BURNS BRIGHT  ★', VIEW.width / 2, 120, 48, PALETTE.gold, PALETTE.gold);
+  titleText(ctx, 'SEVEN NIGHTS HELD — THE VOID WARDEN IS DOWN', VIEW.width / 2, 178, 24, PALETTE.text);
   ctx.font = `600 18px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.fillStyle = PALETTE.dim;
-  ctx.fillText('The Beacon burns bright over the Shattered Ring once more.', VIEW.width / 2, 220);
+  ctx.fillText('Dawn breaks over the Shattered Ring, and the light is yours.', VIEW.width / 2, 214);
   statRows(ctx, world, [
     ['Final score', world.score.toLocaleString('en-US')],
     ['Best score', Math.max(world.best.score, world.score).toLocaleString('en-US')],
     ['Void shards destroyed', String(world.kills)],
+    ['Loops sealed', String(world.stats.loopsSealed)],
     ['Starshards gathered', String(world.shards)],
     ['Best combo', `×${world.bestCombo}`],
     ['Accuracy', `${world.stats.shotsFired > 0 ? Math.round((100 * world.stats.shotsHit) / world.stats.shotsFired) : 0}%`],
-  ], 262);
+  ], 258);
   for (const b of victoryButtons()) drawEndButton(ctx, b, false);
   ctx.font = `600 16px ${FONT}`;
   ctx.fillStyle = PALETTE.dim;
-  ctx.fillText('Press R to play again from wave 1', VIEW.width / 2, 610);
+  ctx.fillText('Press R to play again from night 1', VIEW.width / 2, 610);
   ctx.restore();
 }
 
@@ -295,6 +387,8 @@ export function drawWorld(ctx, world) {
   world.particles.drawBackground(ctx, world.time);
   drawArenaFrame(ctx);
   if (world.screen !== SCREEN_TITLE) {
+    drawBeacon(ctx, world, world.time);
+    world.drift.draw(ctx, world.time);
     world.pickups.draw(ctx, world.time);
     for (const e of world.enemies) e.draw(ctx, world.time);
     world.bullets.draw(ctx);
@@ -304,8 +398,11 @@ export function drawWorld(ctx, world) {
       drawHud(ctx, world);
     }
   } else {
-    // Title: the swarm drifts behind the panel.
+    // Title: the Lumen weaves behind the panel, the swarm drifts with it.
+    drawBeacon(ctx, world, world.time);
+    world.drift.draw(ctx, world.time);
     for (const e of world.enemies) e.draw(ctx, world.time);
+    world.player.draw(ctx, world.time);
     world.particles.draw(ctx);
     drawTitle(ctx, world);
   }

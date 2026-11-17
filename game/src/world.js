@@ -1,11 +1,14 @@
 // The world of LUMEN DRIFT: the state machine, the rules and the score.
-// Screens: title, play, upgrade (pick a card), pause, over, victory.
-// The world owns the player, enemies, bullets, pickups and particles, runs
-// collisions, scores kills with a combo multiplier, and opens the next wave.
-import { ARENA, BOSS_WAVE, COMBO, ENEMIES, PALETTE, PLAYER, SHARD_SCORE, WAVES_TO_WIN, PICKUP_HEART_CHANCE, PICKUP_CELL_CHANCE } from './config.js';
+// Screens: title, play, upgrade (pick a relic), pause, over, victory.
+// The world owns the player, the Beacon, the driftlines, enemies, bullets,
+// pickups and particles, runs collisions, scores kills with a combo
+// multiplier and loop bonuses, and opens the next night.
+import { ARENA, BEACON, BOSS_NIGHT, COMBO, DRIFT, NIGHTS_TO_WIN, PALETTE, PLAYER, SHARD_SCORE, PICKUP_HEART_CHANCE, PICKUP_CELL_CHANCE } from './config.js';
+import { NIGHT_NAMES } from './nights.js';
 import { clamp, distance, range } from './random.js';
 import { Player } from './player.js';
-import { Enemy, WaveDirector } from './enemies.js';
+import { Enemy, NightDirector } from './enemies.js';
+import { Drift } from './drift.js';
 import { Bullets } from './bullets.js';
 import { Pickups } from './pickups.js';
 import { Particles } from './particles.js';
@@ -25,7 +28,7 @@ export const SCREEN_VICTORY = 'victory';
 export function victoryButtons() {
   return [
     { x: 390, y: 520, width: 220, height: 56, label: 'KEEP FLYING', sub: 'endless mode', action: 'endless' },
-    { x: 670, y: 520, width: 220, height: 56, label: 'PLAY AGAIN', sub: 'from wave 1', action: 'restart' },
+    { x: 670, y: 520, width: 220, height: 56, label: 'PLAY AGAIN', sub: 'from night 1', action: 'restart' },
   ];
 }
 
@@ -43,7 +46,8 @@ export class World {
     this.bullets = new Bullets();
     this.pickups = new Pickups(rng);
     this.particles = new Particles(rng);
-    this.director = new WaveDirector(rng);
+    this.director = new NightDirector(rng);
+    this.drift = new Drift();
     this.audio = new AudioSys();
     this.screen = SCREEN_TITLE;
     this.time = 0;
@@ -57,13 +61,19 @@ export class World {
     this.hitStop = 0;
     this.banner = '';
     this.bannerTimer = 0;
+    this.hint = '';
+    this.hintTimer = 0;
+    this.beaconLight = BEACON.light;
+    this.endReason = '';
     this.offered = [];
     this.owned = {};
     this.best = loadBest();
     this.endless = false;
     this.flashRed = 0;
     this.attract = true;
-    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0 };
+    this.attractAngle = 0;
+    this.attractDashTimer = 1;
+    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0, loopsSealed: 0, loopsDetonated: 0 };
     this.reset();
     this.seedTitleSwarm();
   }
@@ -81,6 +91,7 @@ export class World {
     this.enemies = [];
     this.bullets.reset();
     this.pickups.reset();
+    this.drift.reset();
     this.director.reset();
     this.screen = SCREEN_TITLE;
     this.score = 0;
@@ -93,31 +104,48 @@ export class World {
     this.hitStop = 0;
     this.banner = '';
     this.bannerTimer = 0;
+    this.hint = '';
+    this.hintTimer = 0;
+    this.beaconLight = BEACON.light;
+    this.endReason = '';
     this.offered = [];
     this.owned = {};
     this.endless = false;
     this.flashRed = 0;
     this.attract = true;
-    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0 };
+    this.attractAngle = 0;
+    this.attractDashTimer = 1;
+    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0, loopsSealed: 0, loopsDetonated: 0 };
   }
 
   startGame() {
     this.reset();
     this.attract = false;
     this.screen = SCREEN_PLAY;
-    this.startWave(1);
+    this.startNight(1);
     this.audio.unlock();
     this.audio.startMusic();
     this.audio.waveHorn();
   }
 
-  startWave(wave) {
-    this.wave = wave;
-    this.banner = wave === BOSS_WAVE ? 'THE VOID WARDEN AWAKENS' : `WAVE ${wave}`;
+  nightName(night) {
+    return NIGHT_NAMES[night] || 'THE LONG DARK';
+  }
+
+  startNight(night) {
+    this.wave = night;
+    this.banner = night === BOSS_NIGHT ? 'THE VOID WARDEN AWAKENS' : `NIGHT ${night} — ${this.nightName(night)}`;
     this.bannerTimer = 2.2;
-    if (wave === BOSS_WAVE) this.audio.bossAlarm();
+    if (night === BOSS_NIGHT) this.audio.bossAlarm();
     else this.audio.waveHorn();
-    this.director.startWave(wave);
+    if (night === 1) {
+      this.hint = 'DASH (Space) to paint a driftline — cross your own line to SEAL a loop';
+      this.hintTimer = 6;
+    } else if (night === 2) {
+      this.hint = 'Foes marked ◆ hunt the Beacon — loop them before they drink its light';
+      this.hintTimer = 6;
+    }
+    this.director.startNight(night);
   }
 
   spawnEnemy(kind, x, y) {
@@ -161,14 +189,14 @@ export class World {
     }
   }
 
-  damageEnemy(enemy, amount, silent = false) {
+  damageEnemy(enemy, amount, silent = false, inLoop = false) {
     enemy.hp -= amount;
     enemy.flash = 0.12;
     if (!silent) this.audio.hit();
-    if (enemy.hp <= 0) this.killEnemy(enemy);
+    if (enemy.hp <= 0) this.killEnemy(enemy, inLoop);
   }
 
-  killEnemy(enemy) {
+  killEnemy(enemy, inLoop = false) {
     const index = this.enemies.indexOf(enemy);
     if (index === -1) return;
     this.enemies.splice(index, 1);
@@ -177,9 +205,9 @@ export class World {
     this.combo = this.comboTimer > 0 ? Math.min(COMBO.maxMultiplier, this.combo + 1) : 1;
     this.comboTimer = COMBO.windowSeconds;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    const gained = enemy.score * this.combo;
+    const gained = enemy.score * this.combo * (inLoop ? DRIFT.loopScoreBonus : 1);
     this.score += gained;
-    this.particles.scoreText(enemy.x, enemy.y - enemy.radius, `+${gained}`, enemy.color);
+    this.particles.scoreText(enemy.x, enemy.y - enemy.radius, inLoop ? `LOOP +${gained}` : `+${gained}`, inLoop ? PALETTE.loop : enemy.color);
     this.particles.burst(enemy.x, enemy.y, enemy.color, enemy.kind === 'brute' ? 30 : 16, 280, 0.7, 3);
     this.particles.ring(enemy.x, enemy.y, enemy.color, enemy.radius * 2.2);
     this.audio.explode(enemy.kind === 'brute' || enemy.kind === 'warden');
@@ -188,7 +216,7 @@ export class World {
       this.particles.addShake(8);
     }
     this.pickups.dropShards(enemy.x, enemy.y, enemy.shard);
-    if (enemy.kind === 'brute') {
+    if (enemy.kind === 'brute' || enemy.kind === 'splitter') {
       this.spawnEnemy('mote', enemy.x - 20, enemy.y);
       this.spawnEnemy('mote', enemy.x + 20, enemy.y);
     }
@@ -197,9 +225,28 @@ export class World {
     if (enemy.kind === 'warden') this.onBossDown();
   }
 
-  onWaveCleared() {
+  // A foe reached the Beacon and drank one light before burning out.
+  drainBeacon(enemy) {
+    const index = this.enemies.indexOf(enemy);
+    if (index !== -1) this.enemies.splice(index, 1);
+    this.particles.burst(BEACON.x, BEACON.y, PALETTE.danger, 24, 260, 0.8, 3);
+    this.particles.ring(BEACON.x, BEACON.y, PALETTE.danger, 120);
+    // On the title screen the swarm only pretends: no light is lost.
     if (this.screen !== SCREEN_PLAY) return;
-    if (this.wave >= WAVES_TO_WIN && !this.endless) return; // victory handles it
+    this.beaconLight -= 1;
+    this.particles.addShake(7);
+    this.audio.beaconHit();
+    this.flashRed = 0.3;
+    this.hint = this.beaconLight > 0 ? `THE BEACON DIMS — ${this.beaconLight} LIGHT LEFT` : '';
+    this.hintTimer = 2.5;
+    if (this.beaconLight <= 0) this.onBeaconLost();
+  }
+
+  onNightCleared() {
+    if (this.screen !== SCREEN_PLAY) return;
+    if (this.wave >= NIGHTS_TO_WIN && !this.endless) return; // victory handles it
+    // Dawn repairs one light of the Beacon.
+    this.beaconLight = Math.min(BEACON.maxLight, this.beaconLight + 1);
     this.offered = rollUpgrades(this.rng, this.owned);
     this.screen = SCREEN_UPGRADE;
     this.audio.victory();
@@ -222,11 +269,22 @@ export class World {
   }
 
   onPlayerDeath() {
+    this.endReason = 'hull';
     this.screen = SCREEN_OVER;
     this.best = this._recordBest();
     this.audio.gameOver();
     this.particles.burst(this.player.x, this.player.y, PALETTE.player, 60, 380, 1.1, 4);
     this.particles.ring(this.player.x, this.player.y, PALETTE.player, 200);
+    this.particles.addShake(14);
+  }
+
+  onBeaconLost() {
+    this.endReason = 'beacon';
+    this.screen = SCREEN_OVER;
+    this.best = this._recordBest();
+    this.audio.gameOver();
+    this.particles.burst(BEACON.x, BEACON.y, PALETTE.gold, 60, 380, 1.1, 4);
+    this.particles.ring(BEACON.x, BEACON.y, PALETTE.gold, 240);
     this.particles.addShake(14);
   }
 
@@ -242,19 +300,23 @@ export class World {
     this.owned[upgrade.id] = (this.owned[upgrade.id] || 0) + 1;
     this.audio.pickup();
     this.offered = [];
-    this.startWave(this.wave + 1);
+    this.startNight(this.wave + 1);
     this.screen = SCREEN_PLAY;
   }
 
   continueEndless() {
     this.endless = true;
     this.screen = SCREEN_PLAY;
-    this.startWave(this.wave + 1);
+    this.startNight(this.wave + 1);
   }
 
   update(dt, input) {
     this.time += dt;
     if (this.bannerTimer > 0) this.bannerTimer -= dt;
+    if (this.hintTimer > 0) {
+      this.hintTimer -= dt;
+      if (this.hintTimer <= 0) this.hint = '';
+    }
     if (this.flashRed > 0) this.flashRed -= dt;
     if (this.comboTimer > 0) {
       this.comboTimer -= dt;
@@ -308,6 +370,7 @@ export class World {
       return; // freeze the world briefly on big kills
     }
     this.player.update(dt, input, this);
+    this.drift.update(dt, this);
     this.director.update(dt, this);
     for (const e of this.enemies.slice()) e.update(dt, this);
     this.bullets.update(dt);
@@ -343,7 +406,31 @@ export class World {
   }
 
   _updateAttract(dt) {
-    // The title screen plays itself: drifters wander, the ship idles.
+    // The title screen plays itself: the Lumen weaves slow circles around
+    // the Beacon, dashing now and then to paint driftlines, while drifters
+    // wander. It shows the game's signature move before a single keypress.
+    this.attractAngle += dt * 0.45;
+    const cx = BEACON.x + Math.cos(this.attractAngle) * 190;
+    const cy = BEACON.y + Math.sin(this.attractAngle) * 150;
+    const p = this.player;
+    const dx = cx - p.x;
+    const dy = cy - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    p.vx = (dx / d) * 200;
+    p.vy = (dy / d) * 200;
+    p.x = clamp(p.x + p.vx * dt, ARENA.x + p.radius, ARENA.x + ARENA.width - p.radius);
+    p.y = clamp(p.y + p.vy * dt, ARENA.y + p.radius, ARENA.y + ARENA.height - p.radius);
+    p.angle = Math.atan2(dy, dx);
+    this.attractDashTimer -= dt;
+    if (this.attractDashTimer <= 0) {
+      this.attractDashTimer = 2.4;
+      p.startDash(this);
+    }
+    if (p.weaveTimer > 0) {
+      p.weaveTimer -= dt;
+      this.drift.paint(p.x, p.y, this.time);
+    }
+    this.drift.update(dt, this);
     for (const e of this.enemies.slice()) {
       e.update(dt, this);
       if (this.rng() < 0.002) {

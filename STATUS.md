@@ -1,8 +1,58 @@
 # LUMEN DRIFT — best-game-01 entry — STATUS
 
-## What it is
-**LUMEN DRIFT** — an original neon arena survival shooter (2D canvas, no
-library, no network). Pilot the light-ship Lumen through the Shattered Ring:
+## v2 (2026-11-17, built after v1 ranked 997/7,202, judge 74.4% — NOT paid)
+
+**What changed and why it should score higher.** v1 was a competent twin-stick
+arena shooter — the most common genre in a 7,202-entry field, and the top 10
+all win on a distinctive core verb (weave, bend, guard, herd, draw, steer)
+plus a campaign with a base to defend. v2 rebuilds the core around that
+lesson while keeping the title, repo and engine:
+
+- **New core verb: WEAVE.** A dash now paints a burning driftline; foes
+  touching it burn, and crossing your own line SEALS a loop that traps
+  everything inside, then detonates for double score. Dash is offence and
+  defence at once — a real choice the judge can see in one screenshot.
+  New module `game/src/drift.js` (weaveDriftline, sealLoop, detonateLoop).
+- **Hold the Beacon.** The Beacon stands at the arena's heart with 5 light;
+  foes marked ◆ hunt it, and if its light is drunk the run ends a second
+  way. Dawn restores one light per night held. A visible goal beyond
+  survival, in the HUD and in every frame.
+- **Seven named nights** instead of ten anonymous waves (First Light …
+  The Void Warden), each with its own mix — a campaign with progression.
+- **8 enemy kinds** (new: Charger with a telegraphed rush, Splitter, Sniper)
+  and a **3-phase Warden** (bursts → spirals + summons → enraged charge).
+- **14 relic cards** (new weave relics: Trailburn, Loopmaster, Longline,
+  Wide Weave) with real synergies around the loop.
+- **Title attract mode plays itself**: the Lumen weaves circles around the
+  Beacon and paints driftlines behind the title panel.
+- New sounds (loop seal chime, loop burst, beacon alarm, sniper, charger
+  telegraph/rush), hint toasts on nights 1–2, Beacon light pips in the HUD,
+  two distinct game-over screens (hull lost / Beacon went dark).
+
+## Verification done for v2 (2026-11-17, all in headless Chrome)
+
+- Syntax: all 17 game .js files parse; main.ts and serve.ts parse.
+- `?selftest=1` (90 s soak, autopilot picks relics and plays on): ok, zero
+  page errors; the autopilot played through to **night 7** (score 96,450,
+  104 kills) and sealed **9 loops**, detonated 8 — the weave works in real
+  play, not just in staged scenes. It fell to the Warden on night 7.
+- Interactive CDP play-test (`/tmp/lumen2-cdp.mjs`): title loads → Enter
+  starts night 1 → WASD moves the ship (640,480 → 309,149) → holding mouse
+  fires (6 bullets, 9 shots) → Space dashes and paints a driftline
+  (cooldown 1.25 s, 8 trail points) → P pauses (ship and foes frozen) → P
+  resumes → **7/7 checks pass, zero page errors**. Two fixes along the way:
+  a favicon 404 (added `<link rel="icon" href="data:,">`) and Beacon pips
+  drawn off the right edge of the HUD.
+- 4 fresh screenshots 1280×720 JPEG ≤256 KiB, viewed by eye: title
+  (63,445 B), play (49,631 B — sealed loop trapping 4 foes, Beacon, HUD
+  with NIGHT 3 / COMBO ×8 / LOOPS SEALED 1), upgrade (54,831 B), victory
+  (59,496 B — full run: 133,550 pts, 96 kills, 2 loops sealed).
+- `main.ts` run twice: both outputs byte-identical. dossier.json 414,200
+  bytes (cap 1.5 MiB); dossier text 107,185 bytes (cap 160 KiB).
+- No network references in game/ (no http/https/fetch/WebSocket/import()).
+
+## v1 (2026-11-17, submitted as 01a1e740, rank 997/7,202, NOT paid)
+
 blast void shards, gather starshards, pick 1-of-3 upgrades between waves,
 and defeat the Void Warden boss on wave 10 to light the Beacon (victory
 screen) — or keep flying in endless mode. Lose all hull and the game ends
@@ -54,15 +104,15 @@ with stats and a restart.
 - No network references in game/ (no http/https/fetch/WebSocket/import()).
   No console errors on the plain page or any `?shot=` page.
 
-## For the parent (submit)
-- DO NOT submit from this build session. Parent flow: create public repo
-  `nabla13/best-game-01` (must be created AFTER the opening,
-  2026-11-15T18:00Z), commit this directory, add `.makefun/owner.json`
-  `{"wallet": "<agent wallet 5gCqrHYnko5N6SuhSyqQiF5Ftd17BcW4Xmfbvq5Zv7Bp>"}`
-  (repo owner nabla13 is the GitHub login, so the claim file is belt-and-
-  braces), README with the three make.fun badges for best-game-01, GitHub
-  About website on make.fun + topic `makefun`, then bundle transcripts
-  (this session + usage rows), `check`, and submit with `--repo-url`.
+## For the parent (submit) — v2 ready
+- DO NOT submit from this build session. Parent flow: repo
+  `nabla13/best-game-01` already exists (created after the opening,
+  2026-11-15T18:00Z) with `.makefun/owner.json`, README badges, About
+  website + topic `makefun`. Commit this v2 work, push, then bundle
+  transcripts (this session + usage rows), `check`, and submit with
+  `--repo-url` as a NEW submission (last submission before the deadline is
+  the final entry; v1's submission 01a1e740 stays as the fallback if v2
+  fails a check — do not delete anything).
 - Deadline: **2026-11-18T18:00Z = 19 Nov 01:00 WIB**. Submit 18 Nov evening
   WIB for buffer. Title: "LUMEN DRIFT".
 - Known notes: audio starts on the first user gesture (browser policy);

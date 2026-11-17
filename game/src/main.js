@@ -43,9 +43,14 @@ function selfTest() {
   window.addEventListener('error', (event) => errors.push(String(event.message)));
   try {
     world.startGame();
-    // Scripted play: 40 seconds through the shots' autopilot, the same
-    // driver the screenshot scenes use, so the test exercises real play.
-    for (let i = 0; i < 40 / STEP; i += 1) {
+    // Scripted play: 90 seconds through the shots' autopilot, the same
+    // driver the screenshot scenes use, so the test exercises real play —
+    // including picking relics between nights — and proves the weave works.
+    for (let i = 0; i < 90 / STEP; i += 1) {
+      if (world.screen === 'upgrade') {
+        world.chooseUpgrade(0);
+        continue;
+      }
       if (world.screen !== 'play') break;
       world.update(STEP, autopilotInput(world));
     }
@@ -60,6 +65,9 @@ function selfTest() {
       enemies: world.enemies.length,
       bullets: world.bullets.player.length,
       playerHull: world.player.hull,
+      beaconLight: world.beaconLight,
+      loopsSealed: world.stats.loopsSealed,
+      loopsDetonated: world.stats.loopsDetonated,
     };
     const text = JSON.stringify(result);
     announce(text);

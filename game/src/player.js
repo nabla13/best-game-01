@@ -1,7 +1,9 @@
 // The player's light-ship, the Lumen, for LUMEN DRIFT.
 // WASD/arrows steer with acceleration, the mouse aims, holding fire shoots,
-// Space/Shift dashes through danger, and E (or right click) spends a full
-// Nova meter on a blast that clears bullets and wounds everything near.
+// Space/Shift dashes — and a dash PAINTS: it weaves a burning driftline
+// behind the ship. Cross your own line to seal a loop and trap the swarm.
+// E (or right click) spends a full Nova meter on a blast that clears
+// bullets and wounds everything near.
 import { ARENA, PALETTE, PLAYER } from './config.js';
 import { angleTo, clamp } from './random.js';
 
@@ -28,11 +30,16 @@ export class Player {
     this.magnet = PLAYER.magnet;
     this.nova = 0;
     this.novaChargeRate = 1;
+    this.burnMul = 1;
+    this.loopMul = 1;
+    this.lineWidthMul = 1;
+    this.lineLifeMul = 1;
     this.fireTimer = 0;
     this.dashTimer = 0;
     this.dashCooldown = 0;
     this.dashCooldownMax = PLAYER.dashCooldown;
     this.invulnTimer = 0;
+    this.weaveTimer = 0;
     this.shield = false;
     this.alive = true;
     this.trailTimer = 0;
@@ -69,6 +76,10 @@ export class Player {
     if (this.dashTimer > 0) this.dashTimer -= dt;
     if (this.dashCooldown > 0) this.dashCooldown -= dt;
     if (this.invulnTimer > 0) this.invulnTimer -= dt;
+    if (this.weaveTimer > 0) {
+      this.weaveTimer -= dt;
+      world.drift.paint(this.x, this.y, world.time);
+    }
 
     if ((input.wasPressed('Space') || input.wasPressed('ShiftLeft') || input.wasPressed('ShiftRight')) && this.dashReady) {
       this.startDash(world);
@@ -94,6 +105,9 @@ export class Player {
     this.dashTimer = PLAYER.dashTime;
     this.dashCooldown = this.dashCooldownMax;
     this.invulnTimer = Math.max(this.invulnTimer, PLAYER.dashInvuln);
+    // A dash paints: the ship weaves a burning driftline for the dash and
+    // a breath after it, the line its loops are closed from.
+    this.weaveTimer = PLAYER.dashTime + 1.0;
     const dx = this.vx;
     const dy = this.vy;
     const len = Math.hypot(dx, dy) || 1;

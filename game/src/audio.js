@@ -98,6 +98,21 @@ export class AudioSys {
     this._tone(165, 0.4, 'sawtooth', 0.2, 165);
   }
   hurt() { this._tone(180, 0.25, 'sawtooth', 0.3, 60); }
+  loopSeal() {
+    this._tone(660, 0.12, 'sine', 0.2, 990);
+    this._tone(990, 0.18, 'sine', 0.18, 1320);
+  }
+  loopBurst() {
+    this._tone(523, 0.3, 'triangle', 0.3, 1568);
+    this._noise(0.4, 0.4, 1200);
+  }
+  beaconHit() {
+    this._tone(220, 0.3, 'sawtooth', 0.3, 110);
+    this._tone(110, 0.4, 'sine', 0.25, 55);
+  }
+  snipe() { this._tone(1200, 0.08, 'square', 0.08, 500); }
+  chargeAim() { this._tone(440, 0.15, 'sawtooth', 0.12, 660); }
+  chargeRush() { this._noise(0.25, 0.3, 2400, 'highpass'); }
   click() { this._tone(660, 0.05, 'sine', 0.14, 660); }
   gameOver() {
     this._tone(392, 0.5, 'triangle', 0.25, 196);

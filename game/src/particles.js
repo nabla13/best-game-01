@@ -1,8 +1,9 @@
 // Particles, shockwaves, floating score text, screen shake and the
 // animated starfield for LUMEN DRIFT. Everything here is cosmetic: it never
 // changes the rules, only how they feel. The nebula background is painted
-// once onto an offscreen canvas and reused every frame.
-import { VIEW, PALETTE, BEACON } from './config.js';
+// onto an offscreen canvas and reused every frame; each realm repaints it
+// in its own colours.
+import { VIEW, PALETTE, BEACON, REALMS } from './config.js';
 import { range } from './random.js';
 
 export class Particles {
@@ -26,18 +27,19 @@ export class Particles {
     this.nebula = this._paintNebula();
   }
 
-  _paintNebula() {
+  _paintNebula(realm = 0) {
     const off = document.createElement('canvas');
     off.width = VIEW.width;
     off.height = VIEW.height;
     const c = off.getContext('2d');
     c.fillStyle = PALETTE.background;
     c.fillRect(0, 0, VIEW.width, VIEW.height);
+    const neb = REALMS[realm] || REALMS[0];
     const blobs = [
-      { x: 220, y: 160, r: 330, color: PALETTE.nebulaA },
-      { x: 1050, y: 120, r: 300, color: PALETTE.nebulaB },
-      { x: 640, y: 620, r: 380, color: PALETTE.nebulaC },
-      { x: 1150, y: 600, r: 260, color: PALETTE.nebulaA },
+      { x: 220, y: 160, r: 330, color: neb.nebulaA },
+      { x: 1050, y: 120, r: 300, color: neb.nebulaB },
+      { x: 640, y: 620, r: 380, color: neb.nebulaC },
+      { x: 1150, y: 600, r: 260, color: neb.nebulaA },
     ];
     for (const b of blobs) {
       const g = c.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
@@ -49,6 +51,11 @@ export class Particles {
     }
     c.globalAlpha = 1;
     return off;
+  }
+
+  // Repaint the nebula in a realm's colours when the nights move on.
+  setRealm(realm) {
+    this.nebula = this._paintNebula(realm);
   }
 
   burst(x, y, color, count, speed, life = 0.7, size = 3) {

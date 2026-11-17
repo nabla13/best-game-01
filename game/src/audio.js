@@ -111,6 +111,19 @@ export class AudioSys {
     this._tone(110, 0.4, 'sine', 0.25, 55);
   }
   snipe() { this._tone(1200, 0.08, 'square', 0.08, 500); }
+  mirrorPlace() {
+    this._tone(1046, 0.1, 'sine', 0.2, 1568);
+    this._tone(1568, 0.14, 'sine', 0.14, 2093);
+  }
+  focusBeam() {
+    this._tone(1760, 0.18, 'sawtooth', 0.16, 440);
+    this._noise(0.18, 0.2, 3600, 'highpass');
+  }
+  prismShatter() {
+    this._noise(0.3, 0.3, 3000, 'highpass');
+    this._tone(1318, 0.2, 'triangle', 0.18, 660);
+    this._tone(988, 0.25, 'triangle', 0.14, 494);
+  }
   chargeAim() { this._tone(440, 0.15, 'sawtooth', 0.12, 660); }
   chargeRush() { this._noise(0.25, 0.3, 2400, 'highpass'); }
   click() { this._tone(660, 0.05, 'sine', 0.14, 660); }

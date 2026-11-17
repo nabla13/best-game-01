@@ -30,6 +30,14 @@ export function applyUpgrade(player, upgrade) {
   if (upgrade.id === 'loopmaster') player.loopMul *= 2;
   if (upgrade.id === 'longline') player.lineLifeMul *= 1.4;
   if (upgrade.id === 'wideweave') player.lineWidthMul *= 2;
+  if (upgrade.id === 'mirrorplus') player.mirrorMax += 1;
+  if (upgrade.id === 'beamfocus') {
+    player.beamMul *= 2;
+    player.beamWidthMul *= 1.5;
+  }
+  if (upgrade.id === 'prismlens') player.prismMul *= 2;
+  if (upgrade.id === 'cheapglass') player.mirrorCost = 5;
+  if (upgrade.id === 'beamburn') player.beamBurn = true;
 }
 
 // Card layout for the choice screen, shared by world and render.

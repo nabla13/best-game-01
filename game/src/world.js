@@ -3,12 +3,13 @@
 // The world owns the player, the Beacon, the driftlines, enemies, bullets,
 // pickups and particles, runs collisions, scores kills with a combo
 // multiplier and loop bonuses, and opens the next night.
-import { ARENA, BEACON, BOSS_NIGHT, COMBO, DRIFT, NIGHTS_TO_WIN, PALETTE, PLAYER, SHARD_SCORE, PICKUP_HEART_CHANCE, PICKUP_CELL_CHANCE } from './config.js';
-import { NIGHT_NAMES } from './nights.js';
+import { ARENA, BEACON, COMBO, DIFFICULTIES, DIFFICULTY_ORDER, DRIFT, NIGHTS_TO_WIN, PALETTE, PLAYER, SHARD_SCORE, PICKUP_HEART_CHANCE, PICKUP_CELL_CHANCE } from './config.js';
+import { NIGHT_NAMES, bossForNight, realmFor } from './nights.js';
 import { clamp, distance, range } from './random.js';
 import { Player } from './player.js';
 import { Enemy, NightDirector } from './enemies.js';
 import { Drift } from './drift.js';
+import { Light } from './light.js';
 import { Bullets } from './bullets.js';
 import { Pickups } from './pickups.js';
 import { Particles } from './particles.js';
@@ -38,6 +39,18 @@ export function overButtons() {
   ];
 }
 
+// Difficulty cards on the title screen, shared by the world (clicks) and
+// the renderer (drawing). One source of truth so a drawn card is clickable.
+export function difficultyButtons() {
+  const w = 260;
+  const h = 64;
+  const gap = 28;
+  const total = w * 3 + gap * 2;
+  const x0 = (1280 - total) / 2;
+  const y0 = 425;
+  return DIFFICULTY_ORDER.map((id, i) => ({ id, x: x0 + i * (w + gap), y: y0, width: w, height: h }));
+}
+
 export class World {
   constructor(rng) {
     this.rng = rng;
@@ -48,6 +61,7 @@ export class World {
     this.particles = new Particles(rng);
     this.director = new NightDirector(rng);
     this.drift = new Drift();
+    this.light = new Light();
     this.audio = new AudioSys();
     this.screen = SCREEN_TITLE;
     this.time = 0;
@@ -64,6 +78,10 @@ export class World {
     this.hint = '';
     this.hintTimer = 0;
     this.beaconLight = BEACON.light;
+    this.beaconMax = BEACON.maxLight;
+    this.difficultyId = 'blaze';
+    this.difficulty = DIFFICULTIES.blaze;
+    this.realm = null;
     this.endReason = '';
     this.offered = [];
     this.owned = {};
@@ -73,7 +91,7 @@ export class World {
     this.attract = true;
     this.attractAngle = 0;
     this.attractDashTimer = 1;
-    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0, loopsSealed: 0, loopsDetonated: 0 };
+    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0, loopsSealed: 0, loopsDetonated: 0, mirrorsPlaced: 0, focusBeams: 0, prismLoops: 0 };
     this.reset();
     this.seedTitleSwarm();
   }
@@ -92,6 +110,7 @@ export class World {
     this.bullets.reset();
     this.pickups.reset();
     this.drift.reset();
+    this.light.reset();
     this.director.reset();
     this.screen = SCREEN_TITLE;
     this.score = 0;
@@ -106,7 +125,9 @@ export class World {
     this.bannerTimer = 0;
     this.hint = '';
     this.hintTimer = 0;
-    this.beaconLight = BEACON.light;
+    this.beaconLight = this.difficulty.beaconLight;
+    this.beaconMax = this.difficulty.beaconLight;
+    this.realm = null;
     this.endReason = '';
     this.offered = [];
     this.owned = {};
@@ -115,7 +136,23 @@ export class World {
     this.attract = true;
     this.attractAngle = 0;
     this.attractDashTimer = 1;
-    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0, loopsSealed: 0, loopsDetonated: 0 };
+    this.stats = { shotsFired: 0, shotsHit: 0, novas: 0, dashes: 0, loopsSealed: 0, loopsDetonated: 0, mirrorsPlaced: 0, focusBeams: 0, prismLoops: 0 };
+  }
+
+  setDifficulty(id) {
+    if (!DIFFICULTIES[id]) return;
+    this.difficultyId = id;
+    this.difficulty = DIFFICULTIES[id];
+    this.beaconLight = this.difficulty.beaconLight;
+    this.beaconMax = this.difficulty.beaconLight;
+    this.audio.click();
+  }
+
+  difficultyAt(x, y) {
+    for (const b of difficultyButtons()) {
+      if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) return b.id;
+    }
+    return null;
   }
 
   startGame() {
@@ -134,9 +171,21 @@ export class World {
 
   startNight(night) {
     this.wave = night;
-    this.banner = night === BOSS_NIGHT ? 'THE VOID WARDEN AWAKENS' : `NIGHT ${night} — ${this.nightName(night)}`;
+    const boss = bossForNight(night);
+    const realm = realmFor(night);
+    const realmChanged = !this.realm || this.realm.name !== realm.name;
+    this.realm = realm;
+    if (realmChanged) {
+      this.banner = `REALM ${realm.roman} — ${realm.name}`;
+      this.hint = boss ? `${this.nightName(night)} AWAKENS` : `NIGHT ${night} — ${this.nightName(night)}`;
+      this.hintTimer = 3;
+    } else if (boss) {
+      this.banner = `${this.nightName(night)} AWAKENS`;
+    } else {
+      this.banner = `NIGHT ${night} — ${this.nightName(night)}`;
+    }
     this.bannerTimer = 2.2;
-    if (night === BOSS_NIGHT) this.audio.bossAlarm();
+    if (boss) this.audio.bossAlarm();
     else this.audio.waveHorn();
     if (night === 1) {
       this.hint = 'DASH (Space) to paint a driftline — cross your own line to SEAL a loop';
@@ -144,12 +193,16 @@ export class World {
     } else if (night === 2) {
       this.hint = 'Foes marked ◆ hunt the Beacon — loop them before they drink its light';
       this.hintTimer = 6;
+    } else if (night === 3) {
+      this.hint = 'Press Q to place a mirror shard — the Beacon beam bounces off it';
+      this.hintTimer = 6;
     }
+    this.particles.setRealm(Math.floor((night - 1) / 2) % 3);
     this.director.startNight(night);
   }
 
   spawnEnemy(kind, x, y) {
-    const enemy = new Enemy(kind, x, y, this.wave, this.rng);
+    const enemy = new Enemy(kind, x, y, this.wave, this.rng, this.difficulty);
     this.enemies.push(enemy);
     this.particles.ring(x, y, enemy.color, enemy.radius * 2);
     return enemy;
@@ -205,7 +258,7 @@ export class World {
     this.combo = this.comboTimer > 0 ? Math.min(COMBO.maxMultiplier, this.combo + 1) : 1;
     this.comboTimer = COMBO.windowSeconds;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    const gained = enemy.score * this.combo * (inLoop ? DRIFT.loopScoreBonus : 1);
+    const gained = Math.round(enemy.score * this.combo * (inLoop ? DRIFT.loopScoreBonus : 1) * this.difficulty.scoreMul);
     this.score += gained;
     this.particles.scoreText(enemy.x, enemy.y - enemy.radius, inLoop ? `LOOP +${gained}` : `+${gained}`, inLoop ? PALETTE.loop : enemy.color);
     this.particles.burst(enemy.x, enemy.y, enemy.color, enemy.kind === 'brute' ? 30 : 16, 280, 0.7, 3);
@@ -223,6 +276,7 @@ export class World {
     if (this.rng() < PICKUP_HEART_CHANCE) this.pickups.dropHeart(enemy.x, enemy.y);
     if (this.rng() < PICKUP_CELL_CHANCE) this.pickups.dropCell(enemy.x, enemy.y);
     if (enemy.kind === 'warden') this.onBossDown();
+    if (enemy.kind === 'prism') this.onMidBossDown();
   }
 
   // A foe reached the Beacon and drank one light before burning out.
@@ -246,10 +300,23 @@ export class World {
     if (this.screen !== SCREEN_PLAY) return;
     if (this.wave >= NIGHTS_TO_WIN && !this.endless) return; // victory handles it
     // Dawn repairs one light of the Beacon.
-    this.beaconLight = Math.min(BEACON.maxLight, this.beaconLight + 1);
+    this.beaconLight = Math.min(this.beaconMax, this.beaconLight + 1);
     this.offered = rollUpgrades(this.rng, this.owned);
     this.screen = SCREEN_UPGRADE;
     this.audio.victory();
+  }
+
+  onMidBossDown() {
+    // The Matriarch's death shatters her swarm: every remaining foe bursts
+    // into shards and the field clears for the dawn.
+    for (const e of this.enemies.slice()) {
+      this.particles.burst(e.x, e.y, e.color, 14, 240, 0.7, 3);
+      this.pickups.dropShards(e.x, e.y, e.shard);
+    }
+    this.enemies.length = 0;
+    this.bullets.clearEnemyBullets();
+    this.flashRed = 0;
+    this.onNightCleared();
   }
 
   onBossDown() {
@@ -327,7 +394,16 @@ export class World {
 
     if (this.screen === SCREEN_TITLE) {
       this._updateAttract(dt);
-      if (input.wasPressed('Enter') || input.mousePressed) this.startGame();
+      if (input.wasPressed('Digit1')) this.setDifficulty('kindle');
+      if (input.wasPressed('Digit2')) this.setDifficulty('blaze');
+      if (input.wasPressed('Digit3')) this.setDifficulty('inferno');
+      if (input.mousePressed) {
+        const picked = this.difficultyAt(input.mouseX, input.mouseY);
+        if (picked) this.setDifficulty(picked);
+        else this.startGame();
+      } else if (input.wasPressed('Enter')) {
+        this.startGame();
+      }
       return;
     }
     if (this.screen === SCREEN_UPGRADE) {
@@ -364,6 +440,7 @@ export class World {
       return;
     }
     if (input.wasPressed('KeyM')) this.audio.toggleMute();
+    if (input.wasPressed('KeyQ')) this.light.tryPlaceMirror(this);
 
     if (this.hitStop > 0) {
       this.hitStop -= dt;
@@ -371,6 +448,7 @@ export class World {
     }
     this.player.update(dt, input, this);
     this.drift.update(dt, this);
+    this.light.update(dt, this);
     this.director.update(dt, this);
     for (const e of this.enemies.slice()) e.update(dt, this);
     this.bullets.update(dt);
@@ -430,6 +508,12 @@ export class World {
       p.weaveTimer -= dt;
       this.drift.paint(p.x, p.y, this.time);
     }
+    // The title shows the light too: one mirror shard bends the Beacon's
+    // sweeping beam behind the panel.
+    if (this.light.mirrors.length === 0) {
+      this.light.stageMirror(BEACON.x - 180, BEACON.y - 120, this);
+    }
+    this.light.update(dt, this);
     this.drift.update(dt, this);
     for (const e of this.enemies.slice()) {
       e.update(dt, this);

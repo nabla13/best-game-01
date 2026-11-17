@@ -68,6 +68,10 @@ function selfTest() {
       beaconLight: world.beaconLight,
       loopsSealed: world.stats.loopsSealed,
       loopsDetonated: world.stats.loopsDetonated,
+      mirrorsPlaced: world.stats.mirrorsPlaced,
+      beamKills: world.light.beamKills,
+      focusBeams: world.stats.focusBeams,
+      prismLoops: world.stats.prismLoops,
     };
     const text = JSON.stringify(result);
     announce(text);

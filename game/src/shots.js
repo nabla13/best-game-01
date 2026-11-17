@@ -105,6 +105,9 @@ export function autopilotInput(world) {
       // Dash to weave when a crowd is close, or to escape when cornered.
       if (code === 'Space' && p.dashReady && (close || crowd >= 3)) return true;
       if (code === 'KeyE' && nearCrowd >= 5 && p.novaReady) return true;
+      // Bend the light: drop a mirror shard when the rack has room, the
+      // purse can pay, and a few seconds have passed since the last one.
+      if (code === 'KeyQ' && world.shards >= p.mirrorCost && world.light.mirrors.length < p.mirrorMax && world.time - world.light.lastMirrorAt > 4) return true;
       return false;
     },
     down: () => false,
@@ -158,8 +161,9 @@ export function stageShot(name, world) {
     world.startNight(3);
     runSeconds(world, 8);
     if (world.screen === SCREEN_PLAY) {
-      // Stage the signature move on camera: a sealed loop trapping a
-      // cluster, with the ship and its driftline beside it.
+      // Stage the signature moves on camera: two mirror shards bending the
+      // Beacon's beam, and a sealed PRISM LOOP — a loop closed around a
+      // mirror — trapping a cluster, its focus beam still flashing.
       const cluster = clusterCenter(world);
       const cx = cluster ? cluster.x : BEACON.x;
       const cy = cluster ? cluster.y : BEACON.y - 60;
@@ -169,7 +173,10 @@ export function stageShot(name, world) {
       world.spawnEnemy('spitter', cx - 40, cy + 45);
       world.spawnEnemy('charger', 1020, 200);
       world.spawnEnemy('sniper', 220, 520);
+      world.light.stageMirror(cx, cy, world);
+      world.light.stageMirror(cx + 180, cy - 90, world);
       world.drift.stageLoop(cx, cy, 130, world);
+      world.light.fireFocusBeam(cx, cy, world, 8);
       world.flashRed = 0; // a hit's red flash is transient, not the frame
       runSeconds(world, 0.15);
     }
@@ -183,7 +190,9 @@ export function stageShot(name, world) {
         world.spawnEnemy(i % 2 === 0 ? 'weaver' : 'mote', 300 + i * 220, 220 + (i % 2) * 120);
       }
       world.spawnEnemy('spitter', 900, 300);
+      world.light.stageMirror(640, 390, world);
       world.drift.stageLoop(640, 390, 130, world);
+      world.light.fireFocusBeam(640, 390, world, 8);
       runSeconds(world, 3);
     }
     return { screen: SCREEN_PLAY, best: world.score };

@@ -4,7 +4,7 @@
 // stretch between the crossing and the ship SEALS into a loop: everything
 // inside is trapped, held still, and then the loop detonates for heavy
 // damage and bonus shards. Dash to weave, not just to escape.
-import { DRIFT, PALETTE } from './config.js';
+import { DRIFT, LIGHT, PALETTE } from './config.js';
 import { distance } from './random.js';
 
 // Distance from a point to a segment, for testing foes against the line.
@@ -29,7 +29,7 @@ function polygonArea(points) {
   return Math.abs(sum) / 2;
 }
 
-function pointInPolygon(x, y, points) {
+export function pointInPolygon(x, y, points) {
   let inside = false;
   for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
     const xi = points[i].x;
@@ -168,7 +168,14 @@ export class Drift {
   _detonate(loop, world) {
     this.loopsDetonated += 1;
     world.stats.loopsDetonated = this.loopsDetonated;
-    const damage = DRIFT.detonateDamage * world.player.loopMul;
+    // A loop that encloses a mirror is a prism loop: it bursts twice as
+    // hard and fires focus beams. Every loop fires one focus beam at the
+    // swarm from its heart.
+    const isPrism = world.light.loopHasMirror(loop.points);
+    const damage = DRIFT.detonateDamage * world.player.loopMul * (isPrism ? LIGHT.prismLoopMul : 1);
+    if (isPrism) {
+      world.stats.prismLoops = (world.stats.prismLoops || 0) + 1;
+    }
     // Every foe inside the ring when it bursts takes the hit.
     for (const e of world.enemies.slice()) {
       if (e.hp > 0 && pointInPolygon(e.x, e.y, loop.points)) {
@@ -183,6 +190,12 @@ export class Drift {
     world.particles.addShake(10);
     world.audio.loopBurst();
     world.hitStop = Math.max(world.hitStop, 0.07);
+    if (isPrism) {
+      world.particles.scoreText(cx, cy - 30, 'PRISM LOOP', PALETTE.loopSeal);
+      world.light.firePrismCross(cx, cy, world, damage);
+    } else {
+      world.light.fireFocusBeam(cx, cy, world, damage);
+    }
   }
 
   // Staging helper for the screenshot scenes: paint a ring around a point

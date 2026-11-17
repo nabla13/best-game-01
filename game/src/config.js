@@ -9,11 +9,52 @@ export const ARENA = { x: 24, y: 84, width: 1232, height: 612 };
 // The Beacon stands at the arena's heart. Hold its light for seven nights.
 export const BEACON = { x: 640, y: 390, radius: 34, light: 5, maxLight: 5 };
 
+// Three realms the seven nights travel through. Each realm repaints the
+// nebula behind the arena; nights 1-2 burn in the Ember Fields, 3-4 glint
+// in the Mirror Reefs, 5-7 sink into the Hollow Deep. Endless nights keep
+// cycling the realms.
+export const REALMS = [
+  { name: 'EMBER FIELDS',   roman: 'I',   nebulaA: '#4d2a16', nebulaB: '#5e1c3a', nebulaC: '#4a2a0d' },
+  { name: 'MIRROR REEFS',   roman: 'II',  nebulaA: '#0d3a4a', nebulaB: '#123a5e', nebulaC: '#0d4a3a' },
+  { name: 'THE HOLLOW DEEP', roman: 'III', nebulaA: '#2a1050', nebulaB: '#3a0d2e', nebulaC: '#160a3a' },
+];
+
+// Three difficulties, picked on the title screen. Blaze is the intended
+// balance; Kindle is gentler with more Beacon light; Inferno is cruel and
+// pays for it in score.
+export const DIFFICULTIES = {
+  kindle:  { label: 'KINDLE',  desc: 'gentler swarm · 6 Beacon light · ×0.8 score', hpMul: 0.8, speedMul: 0.9, beaconLight: 6, scoreMul: 0.8 },
+  blaze:   { label: 'BLAZE',   desc: 'the intended burn · 5 light · ×1 score',      hpMul: 1.0, speedMul: 1.0, beaconLight: 5, scoreMul: 1.0 },
+  inferno: { label: 'INFERNO', desc: 'cruel swarm · 4 light · ×1.5 score',          hpMul: 1.3, speedMul: 1.1, beaconLight: 4, scoreMul: 1.5 },
+};
+export const DIFFICULTY_ORDER = ['kindle', 'blaze', 'inferno'];
+
+// The light the player bends: the Beacon sweeps a rotating beam, mirrors
+// bounce it, driftlines conduct it, and sealed loops focus it.
+export const LIGHT = {
+  beamSpeed: 0.45,      // radians per second the Beacon beam sweeps
+  beamWidth: 14,        // px wide the beam burns
+  beamDps: 4,           // damage per second to foes touching the beam
+  beamRange: 1500,      // how far the beam travels
+  beamStep: 8,          // px per ray-cast step
+  maxBounces: 3,        // mirrors the beam can bounce off in one sweep
+  mirrorCost: 10,       // starshards to place one mirror shard
+  mirrorMax: 3,         // mirrors on the field at once
+  mirrorRadius: 14,
+  mirrorHp: 3,          // hits a mirror takes before it shatters
+  mirrorShatterShards: 5, // starshards a shattered mirror drops
+  focusBeamDamage: 6,   // damage a loop's focus beam deals along its line
+  focusBeamLength: 700,
+  focusBeamWidth: 26,
+  focusBeamLife: 0.35,  // seconds the focus beam stays visible
+  prismLoopMul: 2,      // detonation damage multiplier for a prism loop
+};
+
 export const PALETTE = {
   background: '#04060f',
-  nebulaA: '#16224d',
-  nebulaB: '#3a1c5e',
-  nebulaC: '#0d3a4a',
+  nebulaA: '#4d2a16',
+  nebulaB: '#5e1c3a',
+  nebulaC: '#4a2a0d',
   star: '#dfe9ff',
   player: '#5ef2ff',
   playerCore: '#e8feff',
@@ -34,6 +75,9 @@ export const PALETTE = {
   splitter: '#7ae2ff',
   sniper: '#d0ff5e',
   warden: '#c77dff',
+  prism: '#ff5df2',
+  beam: '#ffe9a8',
+  mirror: '#bffaff',
   text: '#eaf2ff',
   dim: '#8fa3c8',
   danger: '#ff5470',
@@ -94,10 +138,12 @@ export const ENEMIES = {
   brute:    { hp: 8, speed: 55,  radius: 26, score: 300,  damage: 1, color: PALETTE.brute,    shard: 4, target: 'ship' },
   splitter: { hp: 4, speed: 110, radius: 16, score: 250,  damage: 1, color: PALETTE.splitter, shard: 3, target: 'ship' },
   sniper:   { hp: 2, speed: 70,  radius: 14, score: 250,  damage: 1, color: PALETTE.sniper,   shard: 3, target: 'ship' },
+  prism:    { hp: 140, speed: 50, radius: 44, score: 2500, damage: 1, color: PALETTE.prism,   shard: 15, target: 'ship' },
   warden:   { hp: 260, speed: 42, radius: 64, score: 5000, damage: 2, color: PALETTE.warden,  shard: 25, target: 'ship' },
 };
 
 export const BOSS_NIGHT = 7;
+export const MID_BOSS_NIGHT = 4;
 export const NIGHTS_TO_WIN = 7;
 
 // Relics offered between nights. `max` caps how often one can stack.
@@ -116,6 +162,11 @@ export const UPGRADE_POOL = [
   { id: 'loopmaster', name: 'Loopmaster',    desc: 'Loops burst +100% damage',    icon: '◍', max: 3 },
   { id: 'longline',  name: 'Longline',       desc: 'Driftlines last +40% longer', icon: '〜', max: 3 },
   { id: 'wideweave', name: 'Wide Weave',     desc: 'Driftlines twice as wide',    icon: '▬', max: 2 },
+  { id: 'mirrorplus', name: 'Extra Mirror',  desc: '+1 mirror shard on the field', icon: '◇', max: 2 },
+  { id: 'beamfocus', name: 'Focus Lens',     desc: 'Beacon beam +100% damage, +50% wider', icon: '◎', max: 3 },
+  { id: 'prismlens', name: 'Prism Lens',     desc: 'Loop bursts +100% damage',    icon: '✧', max: 2 },
+  { id: 'cheapglass', name: 'Cheap Glass',   desc: 'Mirrors cost 5 shards, not 10', icon: '◈', max: 1 },
+  { id: 'beamburn',  name: 'Beam Burn',      desc: 'The beam ignites foes it touches', icon: '☀', max: 2 },
 ];
 
 export const SHARD_SCORE = 25;

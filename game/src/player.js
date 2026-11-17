@@ -34,6 +34,13 @@ export class Player {
     this.loopMul = 1;
     this.lineWidthMul = 1;
     this.lineLifeMul = 1;
+    // Light-bending (v3): mirror rack, beam strength, prism power.
+    this.mirrorMax = 3;
+    this.mirrorCost = 10;
+    this.beamMul = 1;
+    this.beamWidthMul = 1;
+    this.prismMul = 1;
+    this.beamBurn = false;
     this.fireTimer = 0;
     this.dashTimer = 0;
     this.dashCooldown = 0;

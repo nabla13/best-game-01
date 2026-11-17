@@ -1,18 +1,19 @@
 // Enemies and the night director for LUMEN DRIFT.
-// Eight kinds, each with its own movement, look and threat: the drifting
+// Nine kinds, each with its own movement, look and threat: the drifting
 // Mote, the sine-weaving Weaver, the ranged Spitter, the telegraphing
 // Charger that rushes in a straight line, the splitting Brute, the
-// Splitter that bursts into motes, the long-range Sniper, and the Void
-// Warden, the night-7 boss with three phases. Some kinds hunt the ship;
-// some hunt the Beacon — and the swarm's mix is what the player reads.
-import { ARENA, BEACON, ENEMIES, PALETTE, VIEW, BOSS_NIGHT } from './config.js';
-import { nightPlan } from './nights.js';
+// Splitter that bursts into motes, the long-range Sniper, the Prism
+// Matriarch, the night-4 boss who sweeps a hostile beam and teleports, and
+// the Void Warden, the night-7 boss with three phases. Some kinds hunt the
+// ship; some hunt the Beacon — and the swarm's mix is what the player reads.
+import { ARENA, BEACON, ENEMIES, PALETTE, VIEW } from './config.js';
+import { bossForNight, nightPlan } from './nights.js';
 import { angleTo, clamp, distance, pick, range } from './random.js';
 
 let nextId = 1;
 
 export class Enemy {
-  constructor(kind, x, y, night, rng) {
+  constructor(kind, x, y, night, rng, difficulty) {
     const def = ENEMIES[kind];
     this.id = nextId;
     nextId += 1;
@@ -22,9 +23,9 @@ export class Enemy {
     this.vx = 0;
     this.vy = 0;
     this.radius = def.radius;
-    this.hp = def.hp + Math.floor(night / 3) * (kind === 'brute' ? 2 : 1);
+    this.hp = Math.max(1, Math.round((def.hp + Math.floor(night / 3) * (kind === 'brute' ? 2 : 1)) * (difficulty?.hpMul ?? 1)));
     this.maxHp = this.hp;
-    this.speed = def.speed * (1 + night * 0.02);
+    this.speed = def.speed * (1 + night * 0.02) * (difficulty?.speedMul ?? 1);
     this.score = def.score;
     this.damage = def.damage;
     this.color = def.color;
@@ -37,6 +38,7 @@ export class Enemy {
     this.flash = 0;
     this.spawnT = 0;
     this.burnAcc = 0;
+    this.beamAcc = 0;
     this.trappedBy = false;
     this.burstTimer = 3;
     this.summonTimer = 5;
@@ -45,6 +47,8 @@ export class Enemy {
     this.chargeState = 'roam';
     this.chargeTimer = 0;
     this.chargeAngle = 0;
+    this.beamAngle = 0;
+    this.teleportTimer = 9;
   }
 
   update(dt, world) {
@@ -111,6 +115,8 @@ export class Enemy {
         world.bullets.fireEnemy(this.x, this.y, a, 420, 1, 5);
         world.audio.snipe();
       }
+    } else if (this.kind === 'prism') {
+      this.updatePrism(dt, world, d, a);
     } else if (this.kind === 'warden') {
       this.updateWarden(dt, world, d, a);
     }
@@ -158,6 +164,62 @@ export class Enemy {
         this.chargeState = 'roam';
         this.chargeTimer = range(world.rng, 1.2, 2.2);
       }
+    }
+  }
+
+  // The Prism Matriarch: she orbits the Beacon at range, sweeps a hostile
+  // beam that cuts anything it touches, summons weavers, and teleports when
+  // the ship closes in. Below half health her beam sweeps faster and she
+  // summons more. The beam is the tell — stay out of its line, or bend
+  // your own light back at her.
+  updatePrism(dt, world, d, a) {
+    const frac = this.hp / this.maxHp;
+    if (!this.enraged && frac < 0.5) {
+      this.enraged = true;
+      world.particles.ring(this.x, this.y, PALETTE.prism, 240);
+      world.audio.bossAlarm();
+      world.banner = 'THE MATRIARCH SHATTERS — FASTER BEAM';
+      world.bannerTimer = 2.0;
+    }
+    // Orbit the Beacon at range, drifting slowly around it.
+    const orbitA = world.time * 0.25 + this.phase;
+    const tx = BEACON.x + Math.cos(orbitA) * 260;
+    const ty = BEACON.y + Math.sin(orbitA) * 200;
+    this.vx += (tx - this.x) * 1.2 * dt;
+    this.vy += (ty - this.y) * 1.2 * dt;
+    // Her hostile beam sweeps around her.
+    this.beamAngle = world.time * (this.enraged ? 1.5 : 0.9) + this.phase;
+    const bx = this.x + Math.cos(this.beamAngle) * 420;
+    const by = this.y + Math.sin(this.beamAngle) * 420;
+    const p = world.player;
+    if (p.alive) {
+      const dx = bx - this.x;
+      const dy = by - this.y;
+      const len2 = dx * dx + dy * dy;
+      let t = 0;
+      if (len2 > 0) t = Math.max(0, Math.min(1, ((p.x - this.x) * dx + (p.y - this.y) * dy) / len2));
+      const cx = this.x + t * dx;
+      const cy = this.y + t * dy;
+      if (distance(p.x, p.y, cx, cy) < 14 + p.radius) {
+        p.takeHit(world);
+      }
+    }
+    this.summonTimer -= dt;
+    if (this.summonTimer <= 0) {
+      this.summonTimer = this.enraged ? 4 : 6;
+      for (let i = 0; i < (this.enraged ? 3 : 2); i += 1) {
+        const ang = world.rng() * Math.PI * 2;
+        world.spawnEnemy('weaver', this.x + Math.cos(ang) * 80, this.y + Math.sin(ang) * 80);
+      }
+    }
+    this.teleportTimer -= dt;
+    if (this.teleportTimer <= 0) {
+      this.teleportTimer = 9;
+      world.particles.burst(this.x, this.y, PALETTE.prism, 30, 320, 0.7, 3);
+      this.x = range(world.rng, ARENA.x + 120, ARENA.x + ARENA.width - 120);
+      this.y = range(world.rng, ARENA.y + 120, ARENA.y + ARENA.height - 120);
+      world.particles.burst(this.x, this.y, PALETTE.prism, 30, 320, 0.7, 3);
+      world.audio.bossAlarm();
     }
   }
 
@@ -308,6 +370,35 @@ export class Enemy {
       ctx.moveTo(0, -this.radius);
       ctx.lineTo(0, this.radius);
       ctx.stroke();
+    } else if (this.kind === 'prism') {
+      // The Prism Matriarch: a rotating diamond with a sweeping hostile
+      // beam drawn from her heart, and a bright shard core.
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,93,242,0.35)';
+      ctx.lineWidth = 10;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(this.beamAngle) * 420, Math.sin(this.beamAngle) * 420);
+      ctx.stroke();
+      ctx.restore();
+      ctx.rotate(time * 0.8 + this.phase);
+      ctx.beginPath();
+      ctx.moveTo(0, -this.radius);
+      ctx.lineTo(this.radius * 0.7, 0);
+      ctx.lineTo(0, this.radius);
+      ctx.lineTo(-this.radius * 0.7, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(0, -this.radius * 0.4);
+      ctx.lineTo(this.radius * 0.28, 0);
+      ctx.lineTo(0, this.radius * 0.4);
+      ctx.lineTo(-this.radius * 0.28, 0);
+      ctx.closePath();
+      ctx.fill();
     } else {
       // The Void Warden: a huge rotating hex with a pulsing core.
       ctx.rotate(time * 0.4);
@@ -372,8 +463,9 @@ export class NightDirector {
 
   startNight(night) {
     this.queue = [];
-    if (night === BOSS_NIGHT) {
-      this.queue.push('warden');
+    const boss = bossForNight(night);
+    if (boss) {
+      this.queue.push(boss);
       this.active = true;
       this.spawnTimer = 0.5;
       return;

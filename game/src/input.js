@@ -31,6 +31,11 @@ export class Input {
     };
     this._onMouseDown = (event) => {
       this.anyGesture = true;
+      // A click carries its own position: use it, so a click without a
+      // prior mousemove still lands where the pointer is.
+      const rect = this.canvas.getBoundingClientRect();
+      this.mouseX = ((event.clientX - rect.left) / rect.width) * this.canvas.width;
+      this.mouseY = ((event.clientY - rect.top) / rect.height) * this.canvas.height;
       if (event.button === 0) {
         this.mouseDown = true;
         this.mousePressed = true;
